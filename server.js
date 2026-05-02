@@ -10,22 +10,79 @@ app.use(cors());
 app.use(express.json());
 
 /* ---------------- Firebase Admin ---------------- */
-const serviceAccountPath =
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./firebase-adminsdk.json";
-const serviceAccount = require(serviceAccountPath);
+const fs = require("fs");
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+/**
+ * Firebase Admin credential loading strategy (in order):
+ * 1) FIREBASE_SERVICE_ACCOUNT_JSON (preferred): JSON string of the service account
+ * 2) FIREBASE_SERVICE_ACCOUNT_PATH: explicit file path
+ * 3) Try common local filenames (firebase-service-account.json / firebase-adminsdk.json)
+ * 4) Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS, etc.)
+ */
+let credential = null;
 
-// Accept either SUPABASE_SERVICE_KEY (preferred) or SUPABASE_KEY (current .env)
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+if (serviceAccountJson && serviceAccountJson.trim()) {
+  try {
+    const serviceAccount = JSON.parse(serviceAccountJson);
+    credential = admin.credential.cert(serviceAccount);
+  } catch {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.");
+  }
+} else {
+  const candidatePaths = [
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    "./firebase-service-account.json",
+    "./firebase-adminsdk.json",
+  ].filter(Boolean);
+
+  const foundPath = candidatePaths.find((p) => fs.existsSync(p));
+  if (foundPath) {
+    const serviceAccount = require(foundPath);
+    credential = admin.credential.cert(serviceAccount);
+  }
+}
+
+if (!credential) {
+  try {
+    credential = admin.credential.applicationDefault();
+  } catch (err) {
+    throw new Error(
+      "Firebase credentials not found. Set FIREBASE_SERVICE_ACCOUNT_JSON (recommended) or FIREBASE_SERVICE_ACCOUNT_PATH, or provide Application Default Credentials (e.g., set GOOGLE_APPLICATION_CREDENTIALS)."
+    );
+  }
+}
+
+admin.initializeApp({ credential });
+
+/* ---------------- Supabase ----------------
+ Accept either:
+ - SUPABASE_SERVICE_ROLE_KEY (preferred / standard)
+ - SUPABASE_SERVICE_KEY
+ - SUPABASE_KEY
+*/
 const supabaseUrl = process.env.SUPABASE_URL?.trim();
-const supabaseServiceKey = (process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY)?.trim();
+const supabaseServiceKey = (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_KEY
+)?.trim();
 
-if (!supabaseUrl) throw new Error("SUPABASE_URL is required.");
-if (!supabaseServiceKey) throw new Error("Supabase service key is required (set SUPABASE_SERVICE_KEY or SUPABASE_KEY).");
+const supabase =
+  supabaseUrl && supabaseServiceKey
+    ? createClient(supabaseUrl, supabaseServiceKey)
+    : null;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+function getSupabaseOrFail(res) {
+  if (!supabase) {
+    return res.status(500).json({
+      error:
+        "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY/SUPABASE_KEY).",
+    });
+  }
+  return null;
+}
 
 /* ---------------- Multer ---------------- */
 const storage = multer.memoryStorage();
@@ -53,6 +110,8 @@ async function authenticate(req, res, next) {
 /* ---------------- Upload File ---------------- */
 app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
   try {
+    if (getSupabaseOrFail(res)) return;
+
     const file = req.file;
     const uid = req.user.uid;
 
@@ -96,6 +155,8 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
 /* ---------------- Get Files ---------------- */
 app.get("/files", authenticate, async (req, res) => {
   try {
+    if (getSupabaseOrFail(res)) return;
+
     const uid = req.user.uid;
 
     const { data, error } = await supabase
@@ -115,6 +176,8 @@ app.get("/files", authenticate, async (req, res) => {
 /* ---------------- Update Profile Image ---------------- */
 app.put("/user/profile-image", authenticate, async (req, res) => {
   try {
+    if (getSupabaseOrFail(res)) return;
+
     const uid = req.user.uid;
     const { profile_image_url } = req.body;
 
@@ -135,6 +198,14 @@ app.put("/user/profile-image", authenticate, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ---------------- Health ---------------- */
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    supabaseConfigured: Boolean(supabase),
+  });
 });
 
 /* ---------------- Start Server ---------------- */
