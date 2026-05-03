@@ -208,6 +208,14 @@ app.get("/health", (req, res) => {
   });
 });
 
+
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    supabaseConfigured: !!process.env.SUPABASE_URL
+  });
+});
+
 /* ---------------- Start Server ---------------- */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
