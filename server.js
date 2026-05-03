@@ -4,6 +4,7 @@ const multer = require("multer");
 const cors = require("cors");
 const admin = require("firebase-admin");
 const { createClient } = require("@supabase/supabase-js");
+const path = require("path");
 
 const app = express();
 app.use(cors());
@@ -25,10 +26,20 @@ const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
 if (serviceAccountJson && serviceAccountJson.trim()) {
   try {
-    const serviceAccount = JSON.parse(serviceAccountJson);
-    credential = admin.credential.cert(serviceAccount);
-  } catch {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.");
+    // Handle both single-line JSON and multi-line JSON (with newlines in private_key)
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(serviceAccountJson);
+    } catch {
+      // If direct parse fails, try replacing literal \n with actual newlines
+      const fixedJson = serviceAccountJson.replace(/\\n/g, '\n');
+      parsedJson = JSON.parse(fixedJson);
+    }
+    credential = admin.credential.cert(parsedJson);
+    console.log("Firebase Admin initialized using FIREBASE_SERVICE_ACCOUNT_JSON");
+  } catch (err) {
+    console.error("Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:", err.message);
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON: " + err.message);
   }
 } else {
   const toResolvedPath = (p) => {
@@ -44,6 +55,7 @@ if (serviceAccountJson && serviceAccountJson.trim()) {
 
   const foundPath = candidatePaths.find((p) => fs.existsSync(p));
   if (foundPath) {
+    console.log("Firebase Admin initialized using file:", foundPath);
     const serviceAccount = require(foundPath);
     credential = admin.credential.cert(serviceAccount);
   }
@@ -51,6 +63,7 @@ if (serviceAccountJson && serviceAccountJson.trim()) {
 
 if (!credential) {
   try {
+    console.log("Trying Application Default Credentials...");
     credential = admin.credential.applicationDefault();
   } catch (err) {
     throw new Error(
