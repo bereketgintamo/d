@@ -31,10 +31,15 @@ if (serviceAccountJson && serviceAccountJson.trim()) {
     throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.");
   }
 } else {
+  const toResolvedPath = (p) => {
+    if (!p) return null;
+    return path.isAbsolute(p) ? p : path.resolve(__dirname, p);
+  };
+
   const candidatePaths = [
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
-    "./firebase-service-account.json",
-    "./firebase-adminsdk.json",
+    toResolvedPath(process.env.FIREBASE_SERVICE_ACCOUNT_PATH),
+    toResolvedPath("./firebase-service-account.json"),
+    toResolvedPath("./firebase-adminsdk.json"),
   ].filter(Boolean);
 
   const foundPath = candidatePaths.find((p) => fs.existsSync(p));
@@ -146,6 +151,8 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
     res.json({
       message: "Upload successful",
       file_url: publicUrl,
+      // Backward-compat for ChatActivity expecting "url"
+      url: publicUrl,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -179,17 +186,19 @@ app.put("/user/profile-image", authenticate, async (req, res) => {
     if (getSupabaseOrFail(res)) return;
 
     const uid = req.user.uid;
-    const { profile_image_url } = req.body;
+    // Accept both field names for compatibility with existing Android code
+    const { profile_image_url, imageUrl } = req.body;
+    const image_url = profile_image_url || imageUrl;
 
-    if (!profile_image_url) {
-      return res.status(400).json({ error: "Image URL required" });
+    if (!image_url) {
+      return res.status(400).json({ error: "Image URL required (use 'profile_image_url' or 'imageUrl')" });
     }
 
     const { error } = await supabase
       .from("users")
       .upsert({
         id: uid,
-        profile_image_url,
+        profile_image_url: image_url,
       });
 
     if (error) throw error;
@@ -201,20 +210,6 @@ app.put("/user/profile-image", authenticate, async (req, res) => {
 });
 
 /* ---------------- Health ---------------- */
-app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    supabaseConfigured: Boolean(supabase),
-  });
-});
-
-
-app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    supabaseConfigured: !!process.env.SUPABASE_URL
-  });
-});
 
 /* ---------------- Start Server ---------------- */
 const PORT = process.env.PORT || 3000;
