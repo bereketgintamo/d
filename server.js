@@ -26,12 +26,11 @@ const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
 if (serviceAccountJson && serviceAccountJson.trim()) {
   try {
-    // Handle both single-line JSON and multi-line JSON (with newlines in private_key)
     let parsedJson;
     try {
       parsedJson = JSON.parse(serviceAccountJson);
     } catch {
-      // If direct parse fails, try replacing literal \n with actual newlines
+      // Fix escaped newlines commonly found in environment variables
       const fixedJson = serviceAccountJson.replace(/\\n/g, '\n');
       parsedJson = JSON.parse(fixedJson);
     }
@@ -147,7 +146,11 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
 
     if (error) throw error;
 
-    const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/uploads/${filePath}`;
+    // Use the official SDK to generate the URL
+    const { data: urlData } = supabase.storage
+      .from("uploads")
+      .getPublicUrl(filePath);
+    const publicUrl = urlData.publicUrl;
 
     // Save metadata
     const { error: dbError } = await supabase.from("files").insert([
@@ -193,36 +196,60 @@ app.get("/files", authenticate, async (req, res) => {
   }
 });
 
-/* ---------------- Update Profile Image ---------------- */
-app.put("/user/profile-image", authenticate, async (req, res) => {
+/* ---------------- User Sync (Registration) ---------------- */
+app.post("/user", authenticate, async (req, res) => {
   try {
     if (getSupabaseOrFail(res)) return;
-
     const uid = req.user.uid;
-    // Accept both field names for compatibility with existing Android code
-    const { profile_image_url, imageUrl } = req.body;
-    const image_url = profile_image_url || imageUrl;
-
-    if (!image_url) {
-      return res.status(400).json({ error: "Image URL required (use 'profile_image_url' or 'imageUrl')" });
-    }
+    const { username, email } = req.body;
 
     const { error } = await supabase
       .from("users")
       .upsert({
         id: uid,
-        profile_image_url: image_url,
+        username: username,
+        email: email || req.user.email,
+        updated_at: new Date()
       });
 
     if (error) throw error;
+    res.json({ message: "User synced" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    res.json({ message: "Profile updated" });
+/* ---------------- Update Profile ---------------- */
+app.put("/user/profile-image", authenticate, async (req, res) => {
+  try {
+    if (getSupabaseOrFail(res)) return;
+
+    const uid = req.user.uid;
+    const { profile_image_url, imageUrl, username, bio, email } = req.body;
+    const image_url = profile_image_url || imageUrl;
+
+    const updates = { id: uid, updated_at: new Date() };
+    if (image_url) updates.profile_image_url = image_url;
+    if (username) updates.username = username;
+    if (bio) updates.bio = bio;
+    if (email) updates.email = email;
+
+    const { error } = await supabase
+      .from("users")
+      .upsert(updates);
+
+    if (error) throw error;
+
+    res.json({ message: "Profile updated successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 /* ---------------- Health ---------------- */
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date() });
+});
 
 /* ---------------- Start Server ---------------- */
 const PORT = process.env.PORT || 3000;

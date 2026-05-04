@@ -12,7 +12,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.users (
     id TEXT PRIMARY KEY,              -- Firebase UID
     email TEXT,
-    profile_image_url TEXT
+    username TEXT,
+    bio TEXT,
+    profile_image_url TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ============================================================
