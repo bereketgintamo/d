@@ -246,6 +246,11 @@ app.put("/user/profile-image", authenticate, async (req, res) => {
   }
 });
 
+/* ---------------- Root Path ---------------- */
+app.get("/", (req, res) => {
+  res.status(200).send("JoyItChat API is running!");
+});
+
 /* ---------------- Health ---------------- */
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", timestamp: new Date() });
