@@ -1,0 +1,388 @@
+================================================================================
+COMPLETE ANDROID CODE FIXES - COPY & PASTE READY
+================================================================================
+
+Replace these files in your Android project with the code below.
+
+================================================================================
+FILE 1: ApiService.java
+Location: app/src/main/java/com/example/joyitchatapp/ApiService.java
+================================================================================
+
+package com.example.joyitchatapp;
+
+import java.util.List;
+import okhttp3.MultipartBody;
+import retrofit2.Call;
+import retrofit2.http.Body;
+import retrofit2.http.GET;
+import retrofit2.http.Header;
+import retrofit2.http.Multipart;
+import retrofit2.http.POST;
+import retrofit2.http.PUT;
+import retrofit2.http.Part;
+import com.google.gson.annotations.SerializedName;
+
+public interface ApiService {
+
+    @Multipart
+    @POST("/upload")
+    Call<FileUploadResponse> uploadFile(
+            @Header("Authorization") String token,
+            @Part MultipartBody.Part file
+    );
+
+    @POST("/user")
+    Call<Void> registerUserOnBackend(
+            @Header("Authorization") String token,
+            @Body User user
+    );
+
+    @GET("/files")
+    Call<List<FileModel>> getFiles(
+            @Header("Authorization") String token
+    );
+
+    @PUT("/user/profile-image")
+    Call<ProfileUpdateResponse> updateProfileImage(
+            @Header("Authorization") String token,
+            @Body ProfileImageRequest request
+    );
+}
+
+================================================================================
+FILE 2: ProfileUpdateResponse.java (NEW FILE - CREATE THIS)
+Location: app/src/main/java/com/example/joyitchatapp/ProfileUpdateResponse.java
+================================================================================
+
+package com.example.joyitchatapp;
+
+import com.google.gson.annotations.SerializedName;
+
+public class ProfileUpdateResponse {
+    @SerializedName("message")
+    private String message;
+    
+    @SerializedName("error")
+    private String error;
+
+    public String getMessage() {
+        return message;
+    }
+
+    public String getError() {
+        return error;
+    }
+}
+
+================================================================================
+FILE 3: ProfileImageRequest.java
+Location: app/src/main/java/com/example/joyitchatapp/ProfileImageRequest.java
+================================================================================
+
+package com.example.joyitchatapp;
+
+import com.google.gson.annotations.SerializedName;
+
+public class ProfileImageRequest {
+    @SerializedName("profile_image_url")
+    private String profile_image_url;
+
+    @SerializedName("username")
+    private String username;
+
+    @SerializedName("bio")
+    private String bio;
+
+    public ProfileImageRequest(String profile_image_url, String username, String bio) {
+        this.profile_image_url = profile_image_url;
+        this.username = username;
+        this.bio = bio;
+    }
+
+    public String getProfile_image_url() {
+        return profile_image_url;
+    }
+
+    public void setProfile_image_url(String profile_image_url) {
+        this.profile_image_url = profile_image_url;
+    }
+}
+
+================================================================================
+FILE 4: ProfileActivity.java
+Location: app/src/main/java/com/example/joyitchatapp/ProfileActivity.java
+================================================================================
+
+package com.example.joyitchatapp;
+
+import android.app.ProgressDialog;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.util.Log;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.bumptech.glide.Glide;
+import com.example.joyitchatapp.databinding.ActivityProfileBinding;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
+
+import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
+
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.RequestBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
+public class ProfileActivity extends AppCompatActivity {
+
+    private static final String TAG = "ProfileActivity";
+    private static final int PICK_IMAGE_REQUEST = 1;
+
+    private ActivityProfileBinding binding;
+    private DatabaseReference userRef;
+    private FirebaseAuth auth;
+    private Uri imageUri;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        binding = ActivityProfileBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+
+        auth = FirebaseAuth.getInstance();
+        String currentUserId = auth.getUid();
+        if (currentUserId == null) {
+            finish();
+            return;
+        }
+
+        userRef = FirebaseDatabase.getInstance("https://joyitchat-default-rtdb.firebaseio.com/")
+                .getReference("users").child(currentUserId);
+
+        loadUserInfo();
+        setupProfileEditing();
+
+        binding.btnLogout.setOnClickListener(v -> {
+            auth.signOut();
+            Intent intent = new Intent(ProfileActivity.this, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        });
+    }
+
+    private void loadUserInfo() {
+        userRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                User user = snapshot.getValue(User.class);
+                if (user != null) {
+                    binding.etUsername.setText(user.getUsername());
+                    binding.etBio.setText(user.getBio());
+                    if (user.getProfileImageUrl() != null && !"default".equals(user.getProfileImageUrl())) {
+                        Glide.with(ProfileActivity.this)
+                                .load(user.getProfileImageUrl())
+                                .placeholder(R.drawable.ic_check_single)
+                                .circleCrop()
+                                .into(binding.ivProfile);
+                    }
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {}
+        });
+    }
+
+    private void setupProfileEditing() {
+        binding.ivProfile.setOnClickListener(v -> openGallery());
+        binding.tvChangePhoto.setOnClickListener(v -> openGallery());
+        binding.btnUpdate.setOnClickListener(v -> saveProfile());
+    }
+
+    private void openGallery() {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        startActivityForResult(intent, PICK_IMAGE_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+            if (requestCode == PICK_IMAGE_REQUEST) {
+                imageUri = data.getData();
+                Glide.with(this).load(imageUri).circleCrop().into(binding.ivProfile);
+            }
+        }
+    }
+
+    private void saveProfile() {
+        String newUsername = binding.etUsername.getText().toString().trim();
+        String newBio = binding.etBio.getText().toString().trim();
+
+        if (TextUtils.isEmpty(newUsername)) {
+            Toast.makeText(this, "Username required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ProgressDialog pd = new ProgressDialog(this);
+        pd.setMessage("Updating profile...");
+        pd.setCancelable(false);
+        pd.show();
+
+        if (imageUri != null) {
+            pd.dismiss(); // uploadFileToSupabase will create its own dialog
+            uploadFileToSupabase(imageUri, newUsername, newBio);
+        } else {
+            updateProfileOnBackend(null, newUsername, newBio, success -> {
+                updateDatabase(newUsername, newBio, null, pd);
+            });
+        }
+    }
+
+    private void uploadFileToSupabase(Uri fileUri, String username, String bio) {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) return;
+
+        ProgressDialog pd = new ProgressDialog(this);
+        pd.setMessage("Preparing and uploading image...");
+        pd.setCancelable(false);
+        pd.show();
+
+        user.getIdToken(true).addOnSuccessListener(result -> {
+            String bearerToken = "Bearer " + result.getToken();
+
+            new Thread(() -> {
+                try {
+                    // Compress and resize image using PhotoFlowUtils
+                    File file = PhotoFlowUtils.compressAndResizeImage(this, fileUri);
+                    if (file == null) throw new Exception("Image processing failed");
+
+                    runOnUiThread(() -> {
+                        // Corrected: changed RequestFile.create to RequestBody.create
+                        RequestBody requestFile = RequestBody.create(MediaType.parse("image/jpeg"), file);
+                        MultipartBody.Part body = MultipartBody.Part.createFormData("file", file.getName(), requestFile);
+
+                        RetrofitClient.getApiService().uploadFile(bearerToken, body).enqueue(new Callback<FileUploadResponse>() {
+                            @Override
+                            public void onResponse(Call<FileUploadResponse> call, Response<FileUploadResponse> response) {
+                                if (response.isSuccessful() && response.body() != null) {
+                                    String fileUrl = response.body().getUrl();
+                                    Toast.makeText(ProfileActivity.this, "Upload Success!", Toast.LENGTH_SHORT).show();
+                                    
+                                    updateProfileOnBackend(fileUrl, username, bio, success -> {
+                                        updateDatabase(username, bio, fileUrl, pd);
+                                    });
+                                } else {
+                                    pd.dismiss();
+                                    Log.e(TAG, "Server Error: " + response.code());
+                                    Toast.makeText(ProfileActivity.this, "Server rejected upload: " + response.code(), Toast.LENGTH_SHORT).show();
+                                }
+                            }
+
+                            @Override
+                            public void onFailure(Call<FileUploadResponse> call, Throwable t) {
+                                pd.dismiss();
+                                Log.e(TAG, "Network Error: " + t.getMessage());
+                                Toast.makeText(ProfileActivity.this, "Network failed: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        pd.dismiss();
+                        Log.e(TAG, "Process Error", e);
+                        Toast.makeText(ProfileActivity.this, "Failed to process image", Toast.LENGTH_SHORT).show();
+                    });
+                }
+            }).start();
+        });
+    }
+
+    interface OnUpdateCompleteListener {
+        void onComplete(boolean success);
+    }
+
+    private void updateProfileOnBackend(@Nullable String imageUrl, String username, String bio, OnUpdateCompleteListener listener) {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) {
+            if (listener != null) listener.onComplete(false);
+            return;
+        }
+
+        user.getIdToken(true).addOnSuccessListener(result -> {
+            String bearerToken = "Bearer " + result.getToken();
+            ProfileImageRequest request = new ProfileImageRequest(imageUrl, username, bio);
+
+            RetrofitClient.getApiService().updateProfileImage(bearerToken, request).enqueue(new Callback<ProfileUpdateResponse>() {
+            @Override
+            public void onResponse(Call<ProfileUpdateResponse> call, Response<ProfileUpdateResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    Log.d(TAG, "Backend users table updated: " + response.body().getMessage());
+                    if (listener != null) listener.onComplete(true);
+                } else {
+                    Log.e(TAG, "Backend update failed: " + response.code());
+                    if (listener != null) listener.onComplete(false);
+                }
+            }
+            
+            @Override
+            public void onFailure(Call<ProfileUpdateResponse> call, Throwable t) {
+                Log.e(TAG, "Backend update error: " + t.getMessage());
+                if (listener != null) listener.onComplete(false);
+            }
+        });
+        }).addOnFailureListener(e -> {
+            if (listener != null) listener.onComplete(false);
+        });
+    }
+
+    private void updateDatabase(String username, String bio, @Nullable String imageUrl, ProgressDialog pd) {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("username", username);
+        updates.put("bio", bio);
+        if (imageUrl != null) {
+            updates.put("profileImageUrl", imageUrl);
+        }
+
+        userRef.updateChildren(updates).addOnCompleteListener(task -> {
+            if (pd != null && pd.isShowing()) pd.dismiss();
+            if (task.isSuccessful()) {
+                Toast.makeText(ProfileActivity.this, "Profile updated", Toast.LENGTH_SHORT).show();
+                imageUri = null;
+            }
+        });
+    }
+}
+
+================================================================================
+END OF FILES
+================================================================================
+
+INSTRUCTIONS:
+1. Copy each file's content above
+2. Replace the corresponding file in your Android project
+3. Create the new ProfileUpdateResponse.java file
+4. Clean and rebuild your project (Build → Clean Project, then Build → Rebuild Project)
+5. Run your app and test file upload and profile picture update
+
+Your backend is running at: https://joyitchat-backend.onrender.com
+
+================================================================================
