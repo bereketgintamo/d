@@ -252,7 +252,12 @@ public class ProfileActivity extends AppCompatActivity {
             uploadFileToSupabase(imageUri, newUsername, newBio);
         } else {
             updateProfileOnBackend(null, newUsername, newBio, success -> {
-                updateDatabase(newUsername, newBio, null, pd);
+                if (success) {
+                    updateDatabase(newUsername, newBio, null, pd);
+                } else {
+                    pd.dismiss();
+                    Toast.makeText(ProfileActivity.this, "Backend update failed", Toast.LENGTH_SHORT).show();
+                }
             });
         }
     }
@@ -288,7 +293,12 @@ public class ProfileActivity extends AppCompatActivity {
                                     Toast.makeText(ProfileActivity.this, "Upload Success!", Toast.LENGTH_SHORT).show();
                                     
                                     updateProfileOnBackend(fileUrl, username, bio, success -> {
-                                        updateDatabase(username, bio, fileUrl, pd);
+                                        if (success) {
+                                            updateDatabase(username, bio, fileUrl, pd);
+                                        } else {
+                                            pd.dismiss();
+                                            Toast.makeText(ProfileActivity.this, "Backend sync failed", Toast.LENGTH_SHORT).show();
+                                        }
                                     });
                                 } else {
                                     pd.dismiss();
@@ -313,6 +323,9 @@ public class ProfileActivity extends AppCompatActivity {
                     });
                 }
             }).start();
+        }).addOnFailureListener(e -> {
+            pd.dismiss();
+            Toast.makeText(this, "Authentication error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         });
     }
 

@@ -137,7 +137,7 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
     const { error: syncError } = await supabase.from("users").upsert({
       id: uid,
       email: req.user.email || null,
-      updated_at: new Date()
+      updated_at: new Date().toISOString()
     });
 
     if (syncError) {
@@ -174,7 +174,10 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
       },
     ]);
 
-    if (dbError) throw dbError;
+    if (dbError) {
+      console.error("[Upload] Database insert failed:", dbError.message);
+      throw dbError;
+    }
 
     res.json({
       message: "Upload successful",
@@ -221,7 +224,7 @@ app.post("/user", authenticate, async (req, res) => {
         id: uid,
         username: username,
         email: email || req.user.email,
-        updated_at: new Date()
+        updated_at: new Date().toISOString()
       });
 
     if (error) throw error;
@@ -240,12 +243,13 @@ app.put("/user/profile-image", authenticate, async (req, res) => {
     const { profile_image_url, imageUrl, username, bio, email } = req.body;
     const image_url = profile_image_url || imageUrl;
 
-    const updates = { id: uid, updated_at: new Date() };
+    const updates = { id: uid, updated_at: new Date().toISOString() };
     if (image_url) updates.profile_image_url = image_url;
     if (username) updates.username = username;
     if (bio) updates.bio = bio;
     if (email) updates.email = email;
 
+    // Perform a selective update to prevent overwriting existing data with nulls
     const { error } = await supabase
       .from("users")
       .upsert(updates);
