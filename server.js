@@ -134,13 +134,18 @@ app.post("/upload", authenticate, upload.single("file"), async (req, res) => {
 
     // Safety Sync: Ensure the user exists in the 'users' table before adding files.
     // This prevents foreign key violations if the initial registration sync was missed.
-    const { error: syncError } = await supabase.from("users").upsert({
-      id: uid,
-      email: req.user.email || null,
-      updated_at: new Date().toISOString()
-    });
+    // We use ignoreDuplicates: true to avoid overwriting existing profile data.
+    const { error: syncError } = await supabase.from("users").upsert(
+      {
+        id: uid,
+        email: req.user.email || null,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'id', ignoreDuplicates: true }
+    );
 
     if (syncError) {
+      console.error("[Sync Error]", syncError);
       return res.status(500).json({ error: "User sync failed: " + syncError.message });
     }
 
@@ -225,7 +230,7 @@ app.post("/user", authenticate, async (req, res) => {
         username: username,
         email: email || req.user.email,
         updated_at: new Date().toISOString()
-      });
+      }, { onConflict: 'id' });
 
     if (error) throw error;
     res.json({ message: "User synced" });
